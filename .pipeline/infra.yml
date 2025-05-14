@@ -1,0 +1,91 @@
+name: InfraPipeline
+trigger: 
+  - main
+pool: Daisy Game Pool
+stages:
+  - stage: Testing
+    displayName: Terraform Testing
+    jobs: 
+      - job: Tfsec
+        displayName: Tfsec Testing
+        steps:
+          - task: CmdLine@2
+            inputs:
+              script: 'tfsec . --tfvars-file .\environments\dev\terraform.tfvars -O tfsec.xml -f junit'
+          - task: PublishTestResults@2
+            condition: always()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: 'tfsec.xml'
+      - job: Tflint 
+        displayName: Tflint Testing
+        condition: always()
+        dependsOn: Tfsec
+        steps:
+          - task: CmdLine@2
+            inputs:
+              script: 'tflint --recursive -var-file .\environments\dev\variable.tf -f junit >tflint.xml'
+          - task: PublishTestResults@2
+            condition: always()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: 'tflint.xml'
+
+  - stage: Planning 
+    condition: always()
+    displayName: Infra Planning 
+    jobs:
+      - job: Planning
+        displayName: Planning Job
+        steps:
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/environments/dev'
+              backendServiceArm: 'Batch 17'
+              backendAzureRmResourceGroupName: 'statefile'
+              backendAzureRmStorageAccountName: 'statefilestg'
+              backendAzureRmContainerName: 'statefile'
+              backendAzureRmKey: 'terraform.tfstate'
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: 'azurerm'
+              command: 'plan'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/environments/dev'
+              environmentServiceNameAzureRM: 'Batch 17'
+
+
+  - stage: Deployment
+    condition: always()
+    displayName: Infra Deploy
+    jobs:
+      - job: MaunualValidation
+        displayName:  Maunual Validation
+        pool: server 
+        steps:
+          - task: ManualValidation@1
+            inputs:
+              notifyUsers: 'Sanidhya1119@outlook.com'
+              approvers: 'Sanidhya1119@outlook.com'
+
+      - job: Deployment
+        dependsOn: MaunualValidation
+        displayName: Infra Dployment Job
+        steps:
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/environments/dev'
+              backendServiceArm: 'Batch 17'
+              backendAzureRmResourceGroupName: 'statefile'
+              backendAzureRmStorageAccountName: 'statefilestg'
+              backendAzureRmContainerName: 'statefile'
+              backendAzureRmKey: 'terraform.tfstate'
+          - task: TerraformTaskV4@4
+            inputs:
+              provider: 'azurerm'
+              command: 'apply'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/environments/dev'
+              environmentServiceNameAzureRM: 'Batch 17'
